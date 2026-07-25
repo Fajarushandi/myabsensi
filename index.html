@@ -191,6 +191,7 @@
     .status-hadir{background:rgba(34,197,94,.15);color:#86efac}
     .status-izin{background:rgba(56,189,248,.15);color:#7dd3fc}
     .status-libur{background:rgba(148,163,184,.15);color:#cbd5e1}
+    .status-lembur{background:rgba(250,204,21,.15);color:#fde68a;margin-left:5px}
 
     .duration{text-align:right;font-weight:900;color:#bbf7d0;min-width:90px}
     .duration small{display:block;color:var(--muted);font-weight:500;font-size:11px;margin-top:3px}
@@ -210,6 +211,12 @@
     .empty{text-align:center;color:var(--muted);padding:26px 14px;border:1px dashed var(--line);border-radius:18px;background:rgba(255,255,255,.035)}
 
     #pdfArea{display:none}
+
+    .checkbox-row{display:flex;align-items:center;gap:10px;background:rgba(250,204,21,.08);border:1px solid rgba(250,204,21,.25);border-radius:15px;padding:12px;cursor:pointer;margin-bottom:0}
+    .checkbox-row input[type="checkbox"]{width:auto;accent-color:var(--yellow)}
+    .checkbox-row span{color:#fde68a;font-weight:800;font-size:14px}
+    .lembur-fields{background:rgba(250,204,21,.06);border:1px solid rgba(250,204,21,.2);border-radius:15px;padding:12px;margin-top:-2px}
+    .lembur-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 
     @media(min-width:700px){
       body{padding:24px}
@@ -255,8 +262,28 @@
             <option value="libur">🏖️ Libur</option>
           </select>
         </div>
+        <div><label for="shiftKerja">Shift Kerja</label>
+          <select id="shiftKerja" onchange="terapkanShift()">
+            <option value="">🕘 Manual</option>
+            <option value="1">Shift 1 (07.50-17.00)</option>
+            <option value="2">Shift 2 (16.55-00.30)</option>
+            <option value="3">Shift 3 (00.25-08.00)</option>
+          </select>
+        </div>
         <div><label for="jamMasuk">Jam Masuk</label><input type="time" id="jamMasuk" /></div>
         <div><label for="jamPulang">Jam Pulang</label><input type="time" id="jamPulang" /></div>
+        <div class="grid-full lembur-toggle">
+          <label class="checkbox-row" for="adaLembur">
+            <input type="checkbox" id="adaLembur" onchange="toggleLembur()" />
+            <span>⏱️ Ada Lembur?</span>
+          </label>
+        </div>
+        <div id="lemburFields" class="grid-full lembur-fields hidden">
+          <div class="lembur-grid">
+            <div><label for="jamLemburMulai">Mulai Lembur</label><input type="time" id="jamLemburMulai" /></div>
+            <div><label for="jamLemburSelesai">Selesai Lembur</label><input type="time" id="jamLemburSelesai" /></div>
+          </div>
+        </div>
         <div class="grid-full"><label for="catatan">Catatan (opsional)</label><textarea id="catatan" placeholder=""></textarea></div>
       </div>
 
@@ -318,6 +345,43 @@
     let data = JSON.parse(localStorage.getItem("absensiPro")) || JSON.parse(localStorage.getItem("absensi")) || [];
     let editId = null;
     const el = id => document.getElementById(id);
+
+    const SHIFTS = {
+      "1": { masuk: "07:50", pulang: "17:00" },
+      "2": { masuk: "16:55", pulang: "00:30" },
+      "3": { masuk: "00:25", pulang: "08:00" }
+    };
+
+    function terapkanShift(){
+      const shift = el("shiftKerja").value;
+      const masukInput = el("jamMasuk");
+      const pulangInput = el("jamPulang");
+      if(shift && SHIFTS[shift]){
+        masukInput.value = SHIFTS[shift].masuk;
+        pulangInput.value = SHIFTS[shift].pulang;
+        masukInput.readOnly = true;
+        pulangInput.readOnly = true;
+      } else {
+        masukInput.readOnly = false;
+        pulangInput.readOnly = false;
+      }
+    }
+
+    function toggleLembur(){
+      const aktif = el("adaLembur").checked;
+      el("lemburFields").classList.toggle("hidden", !aktif);
+      if(!aktif){
+        el("jamLemburMulai").value="";
+        el("jamLemburSelesai").value="";
+      }
+    }
+
+    function deteksiShift(masuk, pulang){
+      for(const key in SHIFTS){
+        if(SHIFTS[key].masuk === masuk && SHIFTS[key].pulang === pulang) return key;
+      }
+      return "";
+    }
 
     el("tanggal").valueAsDate = new Date();
 
@@ -441,17 +505,21 @@
       }
       list.forEach((item,urut)=>{
         const menit=(item.status&&item.status!=="hadir")?0:hitungMenit(item.masuk,item.pulang);
+        const menitLembur=(item.lemburMasuk&&item.lemburPulang)?hitungMenit(item.lemburMasuk,item.lemburPulang):0;
+        const totalMenitItem=menit+menitLembur;
         const detailId=`detail-${item.id}`;
         const statusHTML=`<span class="status-badge ${classStatus(item.status)}">${labelStatus(item.status)}</span>`;
-        const durasiTeks=(item.status&&item.status!=="hadir")?"—":formatDurasiPendek(menit);
+        const lemburBadge=menitLembur>0?`<span class="status-badge status-lembur">⏱️ Lembur ${formatDurasiPendek(menitLembur)}</span>`:"";
+        const durasiTeks=(item.status&&item.status!=="hadir")?"—":formatDurasiPendek(totalMenitItem);
         const catatanRow=item.catatan?`<div class="row row-note"><span>Catatan</span><span>${escapeHTML(item.catatan)}</span></div>`:"";
+        const lemburRow=menitLembur>0?`<div class="row"><span>Lembur</span><span>${item.lemburMasuk} - ${item.lemburPulang} (${formatDurasi(menitLembur)})</span></div>`:"";
         box.innerHTML+=`
           <div class="absen-card">
             <div class="summary" onclick="toggleDetail('${detailId}')">
               <div class="left">
                 <div class="name">#${urut+1} ${escapeHTML(item.nama)}</div>
                 <div class="date">${tanggalID(item.tanggal)} • ${item.masuk||"-"} - ${item.pulang||"-"}</div>
-                ${statusHTML}
+                ${statusHTML} ${lemburBadge}
               </div>
               <div class="duration">${durasiTeks}<small>Tap detail</small></div>
             </div>
@@ -461,7 +529,8 @@
               <div class="row"><span>Status</span><span>${labelStatus(item.status)}</span></div>
               <div class="row"><span>Jam Masuk</span><span>${item.masuk||"-"}</span></div>
               <div class="row"><span>Jam Pulang</span><span>${item.pulang||"-"}</span></div>
-              <div class="row"><span>Durasi</span><span>${(item.status&&item.status!=="hadir")?"-":formatDurasi(menit)}</span></div>
+              ${lemburRow}
+              <div class="row"><span>Total Durasi</span><span>${(item.status&&item.status!=="hadir")?"-":formatDurasi(totalMenitItem)}</span></div>
               ${catatanRow}
               <div class="card-actions">
                 <button class="btn-blue btn-small" onclick="editData('${item.id}')">✏️ Edit</button>
@@ -483,6 +552,9 @@
       const pulang=el("jamPulang").value;
       const status=el("statusKehadiran").value;
       const catatan=el("catatan").value.trim();
+      const adaLembur=el("adaLembur").checked;
+      const lemburMasuk=adaLembur?el("jamLemburMulai").value:"";
+      const lemburPulang=adaLembur?el("jamLemburSelesai").value:"";
 
       let ada_error=false;
       if(!nama){el("nama").classList.add("error");ada_error=true}
@@ -491,6 +563,13 @@
       if(status==="hadir"){
         if(!masuk){el("jamMasuk").classList.add("error");ada_error=true}
         if(!pulang){el("jamPulang").classList.add("error");ada_error=true}
+      }
+
+      if(adaLembur){
+        el("jamLemburMulai").classList.remove("error");
+        el("jamLemburSelesai").classList.remove("error");
+        if(!lemburMasuk){el("jamLemburMulai").classList.add("error");ada_error=true}
+        if(!lemburPulang){el("jamLemburSelesai").classList.add("error");ada_error=true}
       }
 
       if(ada_error){
@@ -508,11 +587,11 @@
       }
 
       if(editId){
-        data=data.map(item=>item.id===editId?{...item,nama,tanggal,masuk,pulang,status,catatan}:item);
+        data=data.map(item=>item.id===editId?{...item,nama,tanggal,masuk,pulang,status,catatan,lemburMasuk,lemburPulang}:item);
         batalEdit(false);
         tampilToast("✅ Data berhasil diupdate");
       } else {
-        data.push({id:uid(),nama,tanggal,masuk,pulang,status,catatan});
+        data.push({id:uid(),nama,tanggal,masuk,pulang,status,catatan,lemburMasuk,lemburPulang});
         tampilToast("✅ Absensi berhasil disimpan");
       }
       simpanStorage();clearForm();render();
@@ -520,8 +599,16 @@
 
     function clearForm(){
       el("nama").value="";
+      el("shiftKerja").value="";
       el("jamMasuk").value="";
       el("jamPulang").value="";
+      el("jamMasuk").readOnly=false;
+      el("jamPulang").readOnly=false;
+      el("adaLembur").checked=false;
+      el("jamLemburMulai").value="";
+      el("jamLemburSelesai").value="";
+      el("lemburFields").classList.add("hidden");
+      ["jamLemburMulai","jamLemburSelesai"].forEach(id=>el(id).classList.remove("error"));
       el("catatan").value="";
       el("statusKehadiran").value="hadir";
       el("tanggal").valueAsDate=new Date();
@@ -535,7 +622,16 @@
       el("tanggal").value=item.tanggal;
       el("jamMasuk").value=item.masuk||"";
       el("jamPulang").value=item.pulang||"";
+      const shiftTerdeteksi=deteksiShift(item.masuk,item.pulang);
+      el("shiftKerja").value=shiftTerdeteksi;
+      el("jamMasuk").readOnly=!!shiftTerdeteksi;
+      el("jamPulang").readOnly=!!shiftTerdeteksi;
       el("statusKehadiran").value=item.status||"hadir";
+      const adaLembur=!!(item.lemburMasuk&&item.lemburPulang);
+      el("adaLembur").checked=adaLembur;
+      el("jamLemburMulai").value=item.lemburMasuk||"";
+      el("jamLemburSelesai").value=item.lemburPulang||"";
+      el("lemburFields").classList.toggle("hidden",!adaLembur);
       el("catatan").value=item.catatan||"";
       el("btnSimpan").innerText="Update Absensi";
       el("formTitle").innerText="Edit Absensi";
@@ -611,7 +707,9 @@
 
       const rows=list.map((item,index)=>{
         const menit=(item.status&&item.status!=="hadir")?0:hitungMenit(item.masuk,item.pulang);
-        totalMenit+=menit;
+        const menitLembur=(item.lemburMasuk&&item.lemburPulang)?hitungMenit(item.lemburMasuk,item.lemburPulang):0;
+        const totalMenitItem=menit+menitLembur;
+        totalMenit+=totalMenitItem;
         return [
           index+1,
           item.nama,
@@ -619,13 +717,14 @@
           labelStatusPDF(item.status),
           item.masuk||"-",
           item.pulang||"-",
-          (item.status&&item.status!=="hadir")?"-":formatDurasi(menit)
+          menitLembur>0?`${item.lemburMasuk}-${item.lemburPulang}`:"-",
+          (item.status&&item.status!=="hadir")?"-":formatDurasi(totalMenitItem)
         ];
       });
 
       doc.autoTable({
         startY:35,
-        head:[["No","Nama","Tanggal","Status","Masuk","Pulang","Durasi"]],
+        head:[["No","Nama","Tanggal","Status","Masuk","Pulang","Lembur","Durasi"]],
         body:rows,
         theme:"grid",
         styles:{fontSize:7.5,halign:"center"},
@@ -642,9 +741,10 @@
     function exportCSV(){
       const list=getFilteredData();
       if(list.length===0){tampilToast("⚠️ Tidak ada data untuk diexport","#ef4444");return}
-      const header=["No","Nama","Tanggal","Status","Jam Masuk","Jam Pulang","Durasi (menit)","Catatan"];
+      const header=["No","Nama","Tanggal","Status","Jam Masuk","Jam Pulang","Lembur Mulai","Lembur Selesai","Durasi Kerja (menit)","Durasi Lembur (menit)","Total Durasi (menit)","Catatan"];
       const rows=list.map((item,i)=>{
         const menit=(item.status&&item.status!=="hadir")?0:hitungMenit(item.masuk,item.pulang);
+        const menitLembur=(item.lemburMasuk&&item.lemburPulang)?hitungMenit(item.lemburMasuk,item.lemburPulang):0;
         return [
           i+1,
           `"${(item.nama||"").replace(/"/g,'""')}"`,
@@ -652,7 +752,11 @@
           labelStatusPDF(item.status),
           item.masuk||"",
           item.pulang||"",
+          item.lemburMasuk||"",
+          item.lemburPulang||"",
           menit,
+          menitLembur,
+          menit+menitLembur,
           `"${(item.catatan||"").replace(/"/g,'""')}"`
         ].join(",");
       });
